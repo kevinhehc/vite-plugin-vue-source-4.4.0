@@ -165,9 +165,7 @@ module.exports = defineConfig({
     },
     {
       files: ['*.js', '*.mjs', '*.cjs'],
-      rules: {
-        '@typescript-eslint/explicit-module-boundary-types': 'off',
-      },
+      rules: {},
     },
     {
       files: ['*.d.ts'],

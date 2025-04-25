@@ -10,6 +10,19 @@ export interface VueQuery {
   id?: string
 }
 
+// 输入示例：
+// const id = 'src/components/App.vue?vue&type=style&index=0&scoped=true'
+//
+// 会返回：
+// {
+//   filename: 'src/components/App.vue',
+//   query: {
+//     vue: true,
+//     type: 'style',
+//     index: 0,
+//     scoped: true
+//   }
+// }
 export function parseVueRequest(id: string): {
   filename: string
   query: VueQuery

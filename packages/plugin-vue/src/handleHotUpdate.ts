@@ -21,11 +21,18 @@ const directRequestRE = /(?:\?|&)direct\b/
 
 /**
  * Vite-specific HMR handling
+ *
+ * 当 .vue 文件内容更新时，Vite 会调用这个函数，让 vite-plugin-vue 判断需要：
+ * 1、精准更新某些模块
+ * 2、或者整页刷新（full reload）
  */
 export async function handleHotUpdate(
   { file, modules, read }: HmrContext,
   options: ResolvedOptions,
 ): Promise<ModuleNode[] | void> {
+  // 读取当前 .vue 文件的新旧结构（SFCDescriptor）
+
+  // prevDescriptor：上一次解析的 Vue 文件结构（缓存）
   const prevDescriptor = getDescriptor(file, options, false, true)
   if (!prevDescriptor) {
     // file hasn't been requested yet (e.g. async component)
@@ -33,6 +40,7 @@ export async function handleHotUpdate(
   }
 
   const content = await read()
+  // 新内容解析出的 Vue 文件结构
   const { descriptor } = createDescriptor(file, content, options, true)
 
   let needRerender = false
@@ -40,11 +48,15 @@ export async function handleHotUpdate(
   const mainModule = getMainModule(modules)
   const templateModule = modules.find((m) => /type=template/.test(m.url))
 
+  // Script 是否变了？
+
   const scriptChanged = hasScriptChanged(prevDescriptor, descriptor)
   if (scriptChanged) {
     affectedModules.add(getScriptModule(modules) || mainModule)
   }
 
+  // Template 是否变了？
+  // 如果只有 <template> 变了而 <script> 没变，就直接复用旧的 compiled script，避免额外重新编译。
   if (!isEqualBlock(descriptor.template, prevDescriptor.template)) {
     // when a <script setup> component's template changes, it will need correct
     // binding metadata. However, when reloading the template alone the binding
@@ -111,6 +123,8 @@ export async function handleHotUpdate(
 
   // custom blocks update causes a reload
   // because the custom block contents is changed and it may be used in JS.
+  // Custom Blocks 是否变了？
+  // 如果变了，也要强制触发更新。
   if (prevCustoms.length !== nextCustoms.length) {
     // block removed/added, force reload
     affectedModules.add(mainModule)
@@ -156,6 +170,7 @@ export async function handleHotUpdate(
   return [...affectedModules].filter(Boolean) as ModuleNode[]
 }
 
+// 比较两个 SFC 块（如 <script> 或 <style>）是否内容一致。
 export function isEqualBlock(a: SFCBlock | null, b: SFCBlock | null): boolean {
   if (!a && !b) return true
   if (!a || !b) return false
@@ -183,6 +198,10 @@ export function isOnlyTemplateChanged(
   )
 }
 
+// 内部会比对：
+// <script> 内容
+// <script setup> 内容
+// <script setup> 的 import 是否受 <template> 改动影响
 function hasScriptChanged(prev: SFCDescriptor, next: SFCDescriptor): boolean {
   if (!isEqualBlock(prev.script, next.script)) {
     return true
@@ -205,6 +224,7 @@ function hasScriptChanged(prev: SFCDescriptor, next: SFCDescriptor): boolean {
   return false
 }
 
+// 找出该 .vue 文件的主模块（用于热更新）
 function getMainModule(modules: ModuleNode[]) {
   return (
     modules
@@ -218,10 +238,12 @@ function getMainModule(modules: ModuleNode[]) {
   )
 }
 
+// 找出该模块对应的 <script> 子模块
 function getScriptModule(modules: ModuleNode[]) {
   return modules.find((m) => /type=script.*&lang\.\w+$/.test(m.url))
 }
 
+// 用于处理 type 依赖的更新（比如组件用的类型文件 .d.ts 发生变化）
 export function handleTypeDepChange(
   affectedComponents: Set<string>,
   { modules, server: { moduleGraph } }: HmrContext,
