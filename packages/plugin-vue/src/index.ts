@@ -101,7 +101,10 @@ export interface ResolvedOptions extends Options {
   devToolsEnabled?: boolean
 }
 
+// 定义了 vite:vue 插件的主入口。它允许 Vite 正确解析 .vue 文件、
+// 处理 <script setup>、模板、样式等，同时支持响应式语法转换（refTransform），以及 SSR、HMR 等功能。
 export default function vuePlugin(rawOptions: Options = {}): Plugin {
+  // 使用 Vue 的 shallowRef 包裹 options，以便在插件生命周期内动态更新设置
   const options = shallowRef<ResolvedOptions>({
     isProduction: process.env.NODE_ENV === 'production',
     compiler: null as any, // to be set in buildStart
@@ -115,14 +118,19 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
     devToolsEnabled: process.env.NODE_ENV !== 'production',
   })
 
+  // 生成用于 .vue 文件过滤的函数。
   const filter = computed(() =>
     createFilter(options.value.include, options.value.exclude),
   )
+
+  // 决定是否把某个 .vue 文件当成自定义元素组件处理。
   const customElementFilter = computed(() =>
     typeof options.value.customElement === 'boolean'
       ? () => options.value.customElement as boolean
       : createFilter(options.value.customElement),
   )
+
+  // 决定是否启用对 ref() 自动解包语法（即响应式语法 sugar）转换。
   const refTransformFilter = computed(() =>
     options.value.reactivityTransform === false
       ? () => false
@@ -132,8 +140,10 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
   )
 
   return {
+    // 插件名称，用于调试和日志。
     name: 'vite:vue',
 
+    // 暴露插件 API（比如供其他插件获取 vue 插件版本或当前配置）
     api: {
       get options() {
         return options.value
@@ -144,7 +154,11 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
       version,
     },
 
+    // HMR 更新钩子：handleHotUpdate
     handleHotUpdate(ctx) {
+      // 检查是否需要清除类型缓存；
+      // 若该文件与某个 .vue 文件有依赖关系，处理依赖变更；
+      // 若是 .vue 文件，执行热更新逻辑。
       if (options.value.compiler.invalidateTypeCache) {
         options.value.compiler.invalidateTypeCache(ctx.file)
       }
@@ -156,7 +170,11 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
       }
     },
 
+    // config 和 configResolved：配置钩子
     config(config) {
+      // 确保非 SSR 构建中只使用唯一的 Vue 实例；
+      // 自动注入 __VUE_OPTIONS_API__ 和 __VUE_PROD_DEVTOOLS__ 宏；
+      // 对 SSR 的构建启用特定 external 设置。
       return {
         resolve: {
           dedupe: config.build?.ssr ? [] : ['vue'],
@@ -174,6 +192,7 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
       }
     },
 
+    // 将 Vite 最终解析后的配置结果合并到插件配置中。
     configResolved(config) {
       options.value = {
         ...options.value,
@@ -186,10 +205,12 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
       }
     },
 
+    // 记录开发服务器实例，用于热更新监听。
     configureServer(server) {
       options.value.devServer = server
     },
 
+    // 初始化 Vue SFC 编译器；监听文件删除以清理类型缓存。
     buildStart() {
       const compiler = (options.value.compiler =
         options.value.compiler || resolveCompiler(options.value.root))
@@ -200,6 +221,8 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
       }
     },
 
+    // 对 export helper 做特殊处理；
+    // .vue 的子资源请求返回虚拟模块 ID。
     async resolveId(id) {
       // component export helper
       if (id === EXPORT_HELPER_ID) {
@@ -211,6 +234,7 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
       }
     },
 
+    // 核心逻辑：加载 .vue 文件的各个 block（script/template/style/custom block）模块内容。
     load(id, opt) {
       const ssr = opt?.ssr === true
       if (id === EXPORT_HELPER_ID) {
@@ -245,6 +269,10 @@ export default function vuePlugin(rawOptions: Options = {}): Plugin {
       }
     },
 
+    // 处理代码转换逻辑：
+    // 针对 .vue 主文件，调用 transformMain；
+    // 针对子 block 模块，分别调用 transformTemplateAsModule 或 transformStyle；
+    // 若开启了 refTransform，对普通 JS/TS 文件也可转换响应式变量。
     transform(code, id, opt) {
       const ssr = opt?.ssr === true
       const { filename, query } = parseVueRequest(id)
